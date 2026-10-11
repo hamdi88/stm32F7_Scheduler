@@ -138,6 +138,16 @@ SECTIONS
 
   } >RAM AT> FLASH
 
+  /* Safety: CRC32 of the flash image, last word of the image.
+     Placed after the .data load image, patched after link by tools/flash_crc.py */
+  .flash_crc :
+  {
+    . = ALIGN(4);
+    _sflash_crc = .;   /* the flash CRC covers ORIGIN(FLASH) up to here */
+    KEEP(*(.flash_crc))
+    . = ALIGN(4);
+  } >FLASH
+
   /* Uninitialized data section into "RAM" Ram type memory */
   . = ALIGN(4);
   .bss :
@@ -152,6 +162,30 @@ SECTIONS
     . = ALIGN(4);
     _ebss = .;         /* define a global symbol at bss end */
     __bss_end__ = _ebss;
+  } >RAM
+
+  /* Safety: data kept across resets (fault log), not cleared by the startup code */
+  .noinit (NOLOAD) :
+  {
+    . = ALIGN(4);
+    *(.noinit)
+    *(.noinit*)
+    . = ALIGN(4);
+  } >RAM
+
+  /* DMA buffers: own MPU region (non-cacheable, 32KB aligned on its size),
+     skipped by the RAM test because DMA writes it at any time */
+  .dma_buffer (NOLOAD) :
+  {
+    . = ALIGN(0x8000);
+    _sdma_buffer = .;
+    *(.dma_buffer)
+    *(.dma_buffer*)
+    . = ALIGN(32);
+    _edma_used = .;                  /* end of the buffers really used */
+    ASSERT(_edma_used - _sdma_buffer <= 0x8000, "DMA buffers exceed the 32KB MPU region (Du32SafetyCfg_DmaRegionSize)");
+    . = _sdma_buffer + 0x8000;       /* reserve the whole region: nothing else is non-cacheable */
+    _edma_buffer = .;
   } >RAM
 
   /* User_heap_stack section, used to check that there is enough "RAM" Ram  type memory left */

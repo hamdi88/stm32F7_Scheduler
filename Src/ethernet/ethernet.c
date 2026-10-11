@@ -79,10 +79,12 @@ typedef enum
 
 /* Private Variables ---------------------------------------------------------*/
 
-static TstEth_DmaDesc tstEth_RxDesc[Du16Eth_RxDescNb];
-static TstEth_DmaDesc tstEth_TxDesc[Du16Eth_TxDescNb];
-static uint8_t au8Eth_RxBuf[Du16Eth_RxDescNb][Du16Eth_BufferSize] __attribute__((aligned(32)));
-static uint8_t au8Eth_TxBuf[Du16Eth_TxDescNb][Du16Eth_BufferSize] __attribute__((aligned(32)));
+//DMA descriptors and buffers live in .dma_buffer: non-cacheable MPU region,
+//excluded from the RAM self-test (the DMA writes them at any time)
+static TstEth_DmaDesc tstEth_RxDesc[Du16Eth_RxDescNb] __attribute__((section(".dma_buffer")));  //RX descriptor ring
+static TstEth_DmaDesc tstEth_TxDesc[Du16Eth_TxDescNb] __attribute__((section(".dma_buffer")));  //TX descriptor ring
+static uint8_t au8Eth_RxBuf[Du16Eth_RxDescNb][Du16Eth_BufferSize] __attribute__((aligned(32), section(".dma_buffer"))); //RX frame buffers
+static uint8_t au8Eth_TxBuf[Du16Eth_TxDescNb][Du16Eth_BufferSize] __attribute__((aligned(32), section(".dma_buffer"))); //TX frame buffers
 
 static uint16_t u16Eth_RxIdx;         //next RX descriptor to read
 static uint16_t u16Eth_TxIdx;         //next TX descriptor to fill

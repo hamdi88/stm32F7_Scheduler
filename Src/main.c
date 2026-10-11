@@ -21,6 +21,7 @@
 #include "stm32f7xx.h"
 #include "main.h"
 
+//result of the ethernet init, its tasks are scheduled only if ETH_OK
 int16_t s16Main_EthStatus;
 
 
@@ -33,22 +34,26 @@ int main(void)
 
   //must be first: SysTick and ethernet timings depend on HCLK
   vMain_SystemClockConfig();
+  //outputs configured (in their safe level) before anything can fail
   vMain_InitGpios();
+  //startup self-tests (CPU, flash, RAM, clock), fault handlers, MPU
+  vSafety_Init();
   //set scheduler tick to 1ms
   s16Schd_Init(Du16Schd_TickMs);
-  //ethernet init (blocking PHY reset, must run before the iWDT is started)
+  //ethernet init (blocking PHY reset, must run before the watchdog is started)
   s16Main_EthStatus = s16Eth_Init(NULL);
-  //init iWDT , set timeout to 3ms
-  vTaskIwdt_init(5);
 
   //add task to run
   s16Schd_AddTask(vMain_HeartBeatLED, 0, 500);
-  s16Schd_AddTask(vTaskIWDT_Reload, 0, 1);
+  s16Schd_AddTask(vSafety_Task, 0, Du32SafetyCfg_TaskPeriodMs);
   if (ETH_OK == s16Main_EthStatus)
     {
       s16Schd_AddTask(vEth_Process, 0, 1);
       s16Schd_AddTask(vEth_LinkTask, 0, 100);
     }
+
+  //watchdog + task supervision, from now on every task is monitored
+  vSafety_Start();
 
   //start scheduling
   vSchd_Enable(SCHD_ENABLE);
@@ -69,9 +74,9 @@ int main(void)
 /******************************************************************************/
 void vMain_SystemClockConfig(void)
 {
-  uint32_t u32Timeout = 0;
-  uint32_t u32PllSrc = LL_RCC_PLLSOURCE_HSE;
-  uint32_t u32PllM = LL_RCC_PLLM_DIV_25;
+  uint32_t u32Timeout = 0;                     //HSE start-up wait loop counter
+  uint32_t u32PllSrc = LL_RCC_PLLSOURCE_HSE;   //PLL input clock (HSE or HSI fallback)
+  uint32_t u32PllM = LL_RCC_PLLM_DIV_25;       //PLL input divider to get 1MHz
 
   //flash: 3 wait states for 90 < HCLK <= 120MHz at 2.7-3.6V, ART + prefetch
   LL_FLASH_SetLatency(LL_FLASH_LATENCY_3);
@@ -122,7 +127,7 @@ void vMain_SystemClockConfig(void)
 
 void vMain_InitGpios(void)
 {
-  LL_GPIO_InitTypeDef GPIO_InitStruct;
+  LL_GPIO_InitTypeDef GPIO_InitStruct;  //pin configuration passed to LL_GPIO_Init
 
   //enable clocks
   LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_GPIOI);
@@ -142,4 +147,17 @@ void vMain_InitGpios(void)
 void vMain_HeartBeatLED()
 {
   LL_GPIO_TogglePin(LED_1_GPIO_Port, LED_1_Pin);
+}
+
+/******************************************************************************/
+//function desc: safety platform hook, put every output in its safe state.
+//               On this board there is no actuator: the LED is switched on
+//               steady (the heartbeat stops blinking) to show the safe state.
+//               A real product de-energizes its relays/motors/valves here.
+//inputs:
+//outputs:
+/******************************************************************************/
+void vSafetyApp_EnterSafeState(void)
+{
+  LL_GPIO_SetOutputPin(LED_1_GPIO_Port, LED_1_Pin);
 }

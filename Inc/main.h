@@ -18,9 +18,9 @@
 #include "../drivers/STM32F7xx_HAL_Driver/Inc/stm32f7xx_ll_pwr.h"
 #include "../drivers/STM32F7xx_HAL_Driver/Inc/stm32f7xx_ll_system.h"
 
-#include "../Src/tasks/task_iwdt.h"
 #include "../Src/scheduler/scheduler.h"
 #include "../Src/ethernet/ethernet.h"
+#include "../Src/safety/safety.h"
 
 #define LED_1_Pin LL_GPIO_PIN_1
 #define LED_1_GPIO_Port GPIOI
