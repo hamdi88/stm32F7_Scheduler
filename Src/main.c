@@ -21,6 +21,8 @@
 #include "stm32f7xx.h"
 #include "main.h"
 
+int16_t s16Main_EthStatus;
+
 
 #if !defined(__SOFT_FP__) && defined(__ARM_FP)
   #warning "FPU is not initialized, but the project is compiling for an FPU. Please initialize the FPU before use."
@@ -29,15 +31,24 @@
 int main(void)
 {
 
+  //must be first: SysTick and ethernet timings depend on HCLK
+  vMain_SystemClockConfig();
   vMain_InitGpios();
   //set scheduler tick to 1ms
   s16Schd_Init(Du16Schd_TickMs);
+  //ethernet init (blocking PHY reset, must run before the iWDT is started)
+  s16Main_EthStatus = s16Eth_Init(NULL);
   //init iWDT , set timeout to 3ms
   vTaskIwdt_init(5);
 
   //add task to run
   s16Schd_AddTask(vMain_HeartBeatLED, 0, 500);
   s16Schd_AddTask(vTaskIWDT_Reload, 0, 1);
+  if (ETH_OK == s16Main_EthStatus)
+    {
+      s16Schd_AddTask(vEth_Process, 0, 1);
+      s16Schd_AddTask(vEth_LinkTask, 0, 100);
+    }
 
   //start scheduling
   vSchd_Enable(SCHD_ENABLE);
@@ -49,6 +60,66 @@ int main(void)
 	  }
 }
 
+/******************************************************************************/
+//function desc: SYSCLK = HCLK = 120MHz, APB1 = 30MHz, APB2 = 60MHz, PLLQ = 48MHz
+//               PLL input 1MHz from HSE 25MHz (/25), or HSI 16MHz (/16) if
+//               the HSE crystal does not start
+//inputs:
+//outputs:
+/******************************************************************************/
+void vMain_SystemClockConfig(void)
+{
+  uint32_t u32Timeout = 0;
+  uint32_t u32PllSrc = LL_RCC_PLLSOURCE_HSE;
+  uint32_t u32PllM = LL_RCC_PLLM_DIV_25;
+
+  //flash: 3 wait states for 90 < HCLK <= 120MHz at 2.7-3.6V, ART + prefetch
+  LL_FLASH_SetLatency(LL_FLASH_LATENCY_3);
+  while (LL_FLASH_GetLatency() != LL_FLASH_LATENCY_3)
+    {
+    }
+  LL_FLASH_EnableART();
+  LL_FLASH_EnablePrefetch();
+
+  //120MHz <= 144MHz: voltage scale 3 is enough, no over-drive
+  LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_PWR);
+  LL_PWR_SetRegulVoltageScaling(LL_PWR_REGU_VOLTAGE_SCALE3);
+
+  //HSE: 25MHz crystal X2 on the DISCO board
+  LL_RCC_HSE_Enable();
+  while ((LL_RCC_HSE_IsReady() != 1U) && (u32Timeout < Du32Main_HseTimeout))
+    {
+      u32Timeout++;
+    }
+  if (LL_RCC_HSE_IsReady() != 1U)
+    {
+      LL_RCC_HSE_Disable();
+      u32PllSrc = LL_RCC_PLLSOURCE_HSI;
+      u32PllM = LL_RCC_PLLM_DIV_16;
+    }
+
+  //PLL: VCO = 1MHz * 240 = 240MHz, P = /2 -> 120MHz, Q = /5 -> 48MHz (USB/SDMMC)
+  LL_RCC_PLL_Disable();
+  LL_RCC_PLL_ConfigDomain_SYS(u32PllSrc, u32PllM, Du32Main_PllN, LL_RCC_PLLP_DIV_2);
+  LL_RCC_PLL_ConfigDomain_48M(u32PllSrc, u32PllM, Du32Main_PllN, LL_RCC_PLLQ_DIV_5);
+  LL_RCC_PLL_Enable();
+  while (LL_RCC_PLL_IsReady() != 1U)
+    {
+    }
+
+  //bus prescalers before the switch: APB1 max 54MHz, APB2 max 108MHz
+  LL_RCC_SetAHBPrescaler(LL_RCC_SYSCLK_DIV_1);
+  LL_RCC_SetAPB1Prescaler(LL_RCC_APB1_DIV_4);
+  LL_RCC_SetAPB2Prescaler(LL_RCC_APB2_DIV_2);
+
+  LL_RCC_SetSysClkSource(LL_RCC_SYS_CLKSOURCE_PLL);
+  while (LL_RCC_GetSysClkSource() != LL_RCC_SYS_CLKSOURCE_STATUS_PLL)
+    {
+    }
+
+  SystemCoreClockUpdate();
+}
+
 void vMain_InitGpios(void)
 {
   LL_GPIO_InitTypeDef GPIO_InitStruct;
@@ -56,12 +127,14 @@ void vMain_InitGpios(void)
   //enable clocks
   LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_GPIOI);
 
+ // configure led pin
   GPIO_InitStruct.Pin = LED_1_Pin;
   GPIO_InitStruct.Mode = LL_GPIO_MODE_OUTPUT;
   GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_LOW;
   GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
   GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
   LL_GPIO_Init(LED_1_GPIO_Port, &GPIO_InitStruct);
+
 
 }
 
