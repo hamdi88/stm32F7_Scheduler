@@ -48,8 +48,12 @@
 #define Du32SafetyCfg_FlashStepBytes      1024UL
 
 //1 -> accept an image whose CRC was not patched by tools/flash_crc.py
-//(development only, must be 0 in a released product)
+//Debug: accepted (convenient while developing), Release: never
+#ifdef DEBUG
 #define Du8SafetyCfg_FlashAllowUnpatched  1U
+#else
+#define Du8SafetyCfg_FlashAllowUnpatched  0U
+#endif
 
 /* Clock monitoring ----------------------------------------------------------*/
 
@@ -77,7 +81,12 @@
 #define Du32SafetyCfg_IwdgWindow          170UL
 
 //1 -> watchdog is frozen while the core is halted by the debugger
+//Debug: frozen (breakpoints do not reset the board), Release: runs as in the field
+#ifdef DEBUG
 #define Du8SafetyCfg_WdgFreezeInDebug     1U
+#else
+#define Du8SafetyCfg_WdgFreezeInDebug     0U
+#endif
 
 /* Task alive supervision ----------------------------------------------------*/
 //every scheduler task must run (window / period) times per window, +/- tolerance
